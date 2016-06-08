@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<script src="d3.min.js"></script>
+<style>
+body {
+  background-color: #111111;
+}
+text {
+    font: 16px sans-serif;
+    font-weight: 300;
+    fill: #aaaaaa;
+}
+.term{ 
+  cursor: pointer; 
+}
+circle, .node {
+  cursor: pointer;
+  stroke: #000;
+  stroke-width: .5px;
+  z-index: 5;
+  opacity: 0.25;
+}
+.bright {
+  opacity: 0.8;
+}
+.selected > text{
+  fill: #02BB33;
+}
+line, .link {
+  stroke: #02BB33;
+  stroke-width: .5px;
+  opacity: 0.7;
+   z-index: 3;
+}
+line.short { visibility: hidden; }
+.selected > line.short { visibility: visible; }
+.center { text-align: center; color: #aaaaaa}
+div.tooltip {
+  font-size: 18px;
+  font-family: Arial, serif;
+  font-weight: 300;
+  position: absolute;
+  z-index: 10;
+  bottom: 30px;
+  left:25px;
+  color: #b38f00;
+}
+</style>
+<body>
+
+    <div class='center'>
+      <h2>Einstein's Relativity Theory Influence</h2>
+    </div>
+
+<script>
+
+var diameter = 600, w = 600, h = 800, links = [];
+
+var bubble = d3.layout.pack()   // define D3 layout
+    .sort(null)
+    .size([w, h])
+    .padding(3);
+
+var bundle = d3.layout.bundle();
+
+var svg = d3.select("body").append("svg")  // create main SVG
+    .attr("width", w+600)
+    .attr("height", h)
+    .attr("class", "bubble");
+
+var colorScale = d3.scale.linear();   // scale for colors
+var calculate, terms, termsSVG, articles, nodesSVG, nodes;                        
+
+function loadNshow(){ d3.json("termNewInfo2.json", function(error, table) { 
+    
+    terms = table.terms;
+    terms.sort(function (a,b) { return a.term < b.term  ? -1 : (a.term == b.term ? 0 : 1 ) ; });
+    for (var i = 0; i < terms.length; i++) { 
+      terms[i].txt = {};
+      if(i < 31) {
+        terms[i].txt.x = 25 ; terms[i].txt.y = 30+i*24; terms[i].x = 245; terms[i].y = terms[i].txt.y - 5;
+      } else {
+        terms[i].txt.x = 960 ; terms[i].txt.y = 30+(i-31)*24; terms[i].x = 935; terms[i].y = terms[i].txt.y - 5;
+      }
+    };
+ console.log(terms);
+    show();
+  })
+}
+
+function show(){d3.json("articlesNewInfo4.json", function(error, table) {   // read articles data file
+  if (error) throw error;
+     articles = table.articles;
+
+  colorScale.domain([0, 15]).range([0,240]);  // set color range to 15 authors
+
+   nodes = bubble.nodes(classes(articles)).filter(function(d) { return !d.children; });
+      normalize(nodes);
+
+console.log(nodes);
+
+    var linkId = 0;
+    terms.forEach(function(term){                     
+      term.targets = [];
+      term.articles.forEach(function(a, i){ 
+        var j = 0;
+        while ( j < nodes.length && nodes[j].el.id !== a) {  
+            j++;
+        }
+        if (j == nodes.length) {console.log('not found: '+a); return;}
+        var link = {source: term, target: nodes[j], id: linkId};
+        links.push(link);      
+        term.targets.push(link);
+        if (!nodes[j].sources) nodes[j].sources = [];
+        nodes[j].sources.push(link);
+
+        linkId++;
+      });
+    });
+
+    termsSVG = svg.selectAll(".term").data(terms);
+  
+    termsSVG.enter().append("g")
+        .attr("class", "term")
+        .attr("transform", function(d) { return "translate(" + d.txt.x + "," + d.txt.y + ")"; })
+      .append("svg:text")
+        .attr("font", function(d) { return 10 + d.articles.length/10+'px'; })
+        .text(function(d) { return d.term; })
+        .on("mouseenter", showLinks);
+
+    var txtScale = d3.scale.linear().domain([1, 30]).range([20,220]);
+    termsSVG.insert("svg:line")
+        .attr("class", "short")
+        .attr("x1", function(d) { if (d.x < 500) { return txtScale(d.term.length)} else { return -10; } })
+        .attr("y1", -5)
+        .attr("x2", function(d) { if (d.x < 500) { return 220} else { return -25; } })
+        .attr("y2", -5); 
+
+   nodesSVG = svg.selectAll(".node").data(nodes);   // 
+
+      nodesSVG.enter().append("circle")       // add circle
+      .attr("class", "node")
+      .attr("class", "bright")
+      .attr("transform", function(d) { return "translate(" + (d.x) + "," + d.y + ")"; })
+      .attr("r", function(d) { return d.r; })  // with calculated raius
+      .style("fill", function(d) { return d3.hsl(colorScale(d.el.numAuthors), 0.5, 0.5); }) // with calculated color
+      .on("mouseenter", function(d){
+        return showTool(d)   // update tooltip on mouseenter
+      })
+      .on("click", showLinks);
+  });
+}
+function showLinks(e){
+ // console.log(e);
+  var links;
+  if (e.targets) links = e.targets;
+  if (e.sources) links = e.sources;
+
+  var link = svg.selectAll(".link").data(links, function(d) {return d.id});   
+
+  link.enter().insert("svg:line")
+       .attr("class", "link")
+       .attr("x1", function(d) { return d.source.x; })
+       .attr("y1", function(d) { return d.source.y; })
+       .attr("x2", function(d) { return d.target.x; })
+       .attr("y2", function(d) { return d.target.y; });
+
+  link.exit().remove();  
+
+  nodes.forEach(function(node){ node.v = false});         // reset flag for articles (circles)
+  links.forEach(function(node){ node.target.v = true});   // set brightness flag for circles
+  terms.forEach(function(node){ node.v = false});         // reset flag for terms
+  links.forEach(function(node){ node.source.v = true});   // set color flag for terms (text)
+
+//  console.log(links);
+  nodesSVG.classed({'bright': function(d){ return d.v; }});
+  termsSVG.classed({'selected': function(d){ return d.v; }});
+}
+
+function normalize(nodes){
+  var minX = nodes[0].x,
+      maxX = nodes[0].x,
+      minY = nodes[0].y,
+      maxY = nodes[0].y;
+      nodes.forEach(function(node){
+        if(minX > node.x) minX = node.x;
+        if(maxX < node.x) maxX = node.x;
+        if(minY > node.y) minY = node.y;
+        if(maxY < node.y) maxY = node.y;        
+      });
+  var xScale = d3.scale.linear().domain([minX, maxX]).range([10,w-10]),
+      yScale = d3.scale.linear().domain([minY, maxY]).range([10,h-10]);
+      nodes.forEach(function(node){
+        node.x = xScale(node.x)+280;
+        node.y = yScale(node.y);   
+      });
+}
+
+function classes(root) { 
+  var classes = [];
+                                  // create the data structure for pack layout
+  root.forEach(function(child){  
+    classes.push({el: child, value: Math.pow(child.radius, 2)});  // value field needed
+  });
+  return {children: classes};  // cheldren field needed
+}
+function showTool(d){   // update tooltip
+        return tooltip.html('Title - '+d.el.title+
+          '<br>Authors - '+d.el.authors.length+
+          '<br>Cites - '+d.el.numCites+
+          '<br>References - '+d.el.numRefs+
+          '<br>URL - '+d.el.id);
+}
+
+var tooltip = d3.select("body")   // create the tooltip html
+  .append("div")
+  .classed("tooltip", true)
+  .text("a tooltip");
+
+loadNshow();
+
+</script>
+</body>
